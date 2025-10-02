@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Registro de compras — Escaneo</title>
+  <style>
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;line-height:1.4;margin:0;background:#f7f7f8;color:#111}
+    header{background:white;position:sticky;top:0;z-index:10;border-bottom:1px solid #e5e7eb}
+    header .wrap{max-width:900px;margin:0 auto;padding:12px 16px;display:flex;gap:12px;align-items:center;justify-content:space-between}
+    main{max-width:900px;margin:0 auto;padding:16px}
+    .card{background:white;border:1px solid #e5e7eb;border-radius:14px;padding:16px;margin-bottom:14px;box-shadow:0 1px 2px rgba(0,0,0,0.03)}
+    label{display:block;font-weight:600;margin:10px 0 6px}
+    input,button,select{font-size:16px;padding:10px;border-radius:10px;border:1px solid #d1d5db;width:100%}
+    button{cursor:pointer}
+    .row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    #video{width:100%;max-height:360px;border-radius:12px;background:#000}
+    .muted{color:#6b7280;font-size:14px}
+    .ok{color:#0a7a0a}
+    .err{color:#b42318}
+    .status{font-weight:600}
+    .small{font-size:12px}
+    .mono{font-family:ui-monospace,SFMono-Regular,Consolas,Monaco,monospace}
+    .pill{background:#eef2ff;border:1px solid #c7d2fe;color:#3730a3;border-radius:999px;padding:2px 8px;font-size:12px}
+  </style>
+</head>
+<body>
+  <header>
+    <div class="wrap">
+      <div class="flex">
+        <strong>Registro de compras</strong>
+        <span id="secure" class="pill">HTTPS requerido para cámara</span>
+      </div>
+      <button id="btnSettings" style="width:auto">⚙️ Ajustes</button>
+    </div>
+  </header>
+
+  <main>
+    <div class="card">
+      <h3>Escáner</h3>
+      <video id="video" autoplay playsinline></video>
+      <div class="row">
+        <div>
+          <label>Código detectado</label>
+          <input id="barcode" class="mono" placeholder="Escanea o escribe manual" />
+        </div>
+        <div>
+          <label>Número de ticket</label>
+          <input id="ticket" class="mono" placeholder="Ej. TCK12345" />
+        </div>
+      </div>
+      <div class="row">
+        <div>
+          <label>ID cliente (opcional)</label>
+          <input id="cliente" class="mono" placeholder="Ej. 000123" />
+        </div>
+        <div>
+          <label>ID vendedor (opcional)</label>
+          <input id="seller" class="mono" placeholder="Ej. S-1" />
+        </div>
+      </div>
+      <div class="row">
+        <button id="sendBtn">Registrar compra</button>
+        <button id="clearBtn" type="button">Limpiar</button>
+      </div>
+      <p class="muted">Consejo: después de detectar un código, el escáner se pausa para evitar lecturas repetidas. Puedes volver a activar con el botón "Limpiar".</p>
+      <div id="status" class="status"></div>
+    </div>
+
+    <div class="card" id="settings" style="display:none">
+      <h3>⚙️ Ajustes</h3>
+      <div class="row">
+        <div>
+          <label>Endpoint (Apps Script Web App URL)</label>
+          <input id="endpoint" placeholder="https://script.google.com/macros/s/XXX/exec" />
+        </div>
+        <div>
+          <label>Token secreto (de tu Apps Script)</label>
+          <input id="token" />
+        </div>
+      </div>
+      <div class="row">
+        <button id="saveSettings">Guardar ajustes</button>
+        <button id="testPing" type="button">Probar conexión</button>
+      </div>
+      <p class="muted small">Los ajustes se guardan localmente en este dispositivo (localStorage).</p>
+    </div>
+
+    <div class="card">
+      <h3>Ayuda rápida</h3>
+      <ul>
+        <li>Usa HTTPS (o <code>localhost</code>) para que la cámara funcione.</li>
+        <li>Permite acceso a la cámara cuando el navegador lo pida.</li>
+        <li>Si no detecta códigos: verifica iluminación, enfoque y que los códigos sean Code-128 o QR.</li>
+      </ul>
+      <p class="muted">Versión: 1.0</p>
+    </div>
+  </main>
+
+  <!-- ZXing Browser via CDN -->
+  <script src="https://unpkg.com/@zxing/library@0.20.0"></script>
+  <script>
+    const $ = (s)=>document.querySelector(s);
+    const statusEl = $('#status');
+    const barcodeEl = $('#barcode');
+    const ticketEl = $('#ticket');
+    const clienteEl = $('#cliente');
+    const sellerEl = $('#seller');
+    const endpointEl = $('#endpoint');
+    const tokenEl = $('#token');
+
+    const btnSettings = $('#btnSettings');
+    const settings = $('#settings');
+    btnSettings.addEventListener('click', ()=>{
+      settings.style.display = settings.style.display === 'none' ? 'block' : 'none';
+    });
+
+    function loadSettings(){
+      endpointEl.value = localStorage.getItem('endpoint') || '';
+      tokenEl.value = localStorage.getItem('token') || '';
+      sellerEl.value = localStorage.getItem('seller') || '';
+    }
+    loadSettings();
+
+    $('#saveSettings').addEventListener('click', ()=>{
+      localStorage.setItem('endpoint', endpointEl.value.trim());
+      localStorage.setItem('token', tokenEl.value.trim());
+      localStorage.setItem('seller', sellerEl.value.trim());
+      status('Ajustes guardados', 'ok');
+    });
+
+    const isSecure = location.protocol === 'https:' || location.hostname === 'localhost';
+    if (isSecure) { $('#secure').textContent='Cámara habilitada'; }
+    else { $('#secure').textContent='Abre con HTTPS o localhost'; }
+
+    const codeReader = new ZXing.BrowserMultiFormatReader();
+    let scanning = false;
+    let streamRef = null;
+
+    async function startScanner(){
+      if (scanning) return;
+      try{
+        streamRef = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+        $('#video').srcObject = streamRef;
+        scanning = true;
+        codeReader.decodeFromVideoDevice(null, $('#video'), (result, err) => {
+          if (result) {
+            barcodeEl.value = result.text;
+            status('Código detectado', 'ok');
+            pauseScanner();
+          }
+          if (err && !(err instanceof ZXing.NotFoundException)) {
+            console.error(err);
+          }
+        });
+      }catch(e){
+        status('No se pudo acceder a la cámara: ' + e, 'err');
+      }
+    }
+
+    async function pauseScanner(){
+      if (!scanning) return;
+      scanning = false;
+      codeReader.reset();
+      if (streamRef) {
+        streamRef.getTracks().forEach(t => t.stop());
+      }
+    }
+
+    async function resumeScanner(){
+      await startScanner();
+    }
+
+    startScanner();
+
+    $('#clearBtn').addEventListener('click', ()=>{
+      barcodeEl.value=''; ticketEl.value=''; 
+      status('Listo para nuevo escaneo', '');
+      resumeScanner();
+    });
+
+    function status(msg, type){
+      statusEl.textContent = msg;
+      statusEl.className = 'status ' + (type || '');
+    }
+
+    async function postRecord(payload){
+      const endpoint = (endpointEl.value || '').trim();
+      const token = (tokenEl.value || '').trim();
+      if (!endpoint) throw new Error('Falta endpoint');
+      if (!token) throw new Error('Falta token');
+      payload.token = token;
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: {'Content-Type':'text/plain;charset=utf-8'},
+        body: JSON.stringify(payload)
+      });
+      const text = await res.text();
+      return text;
+    }
+
+    $('#sendBtn').addEventListener('click', async ()=>{
+      const data = {
+        barcode: barcodeEl.value.trim(),
+        ticket: ticketEl.value.trim(),
+        cliente: clienteEl.value.trim(),
+        seller: sellerEl.value.trim(),
+        userAgent: navigator.userAgent
+      };
+      if (!data.barcode || !data.ticket) {
+        status('Necesitas el código y el ticket', 'err');
+        return;
+      }
+      try{
+        const resp = await postRecord(data);
+        status('Registrado: ' + resp, 'ok');
+      }catch(e){
+        status('Error: ' + e.message, 'err');
+      }
+    });
+
+    $('#testPing').addEventListener('click', async ()=>{
+      try{
+        const t = await postRecord({barcode:'TEST', ticket:'PING', cliente:'', seller: sellerEl.value.trim(), userAgent: navigator.userAgent});
+        status('Ping OK: ' + t, 'ok');
+      }catch(e){
+        status('Ping falló: ' + e.message, 'err');
+      }
+    });
+  </script>
+</body>
+</html>
