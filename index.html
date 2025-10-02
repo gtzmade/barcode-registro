@@ -87,6 +87,7 @@
     </div>
   </main>
 
+  <!-- ZXing Browser -->
   <script src="https://unpkg.com/@zxing/library@0.20.0"></script>
   <script>
     const $ = (s)=>document.querySelector(s);
@@ -120,12 +121,14 @@
       return txt;
     }
 
-    // Cargar ajustes
+    // Panel de ajustes
     const btnSettings = $('#btnSettings');
     const settings = $('#settings');
     btnSettings.addEventListener('click', ()=>{
       settings.style.display = settings.style.display === 'none' ? 'block' : 'none';
     });
+
+    // Cargar/guardar ajustes
     function loadSettings(){
       endpointEl.value = localStorage.getItem('endpoint') || '';
       tokenEl.value = localStorage.getItem('token') || '';
@@ -160,6 +163,7 @@
     // Escáner
     const codeReader = new ZXing.BrowserMultiFormatReader();
     let scanning = false, streamRef = null;
+
     async function startScanner(){
       if (scanning) return;
       try{
@@ -169,7 +173,7 @@
         codeReader.decodeFromVideoDevice(null, $('#video'), (result, err) => {
           if (result) {
             const txt = (result && result.text || '').trim();
-            const code = extractCode(txt); // <<-- AQUÍ normalizamos
+            const code = extractCode(txt); // normalizar aquí
             barcodeEl.value = code;
             status('Código detectado', 'ok');
             pauseScanner();
@@ -178,6 +182,7 @@
         });
       }catch(e){ status('No se pudo acceder a la cámara: ' + e, 'err'); }
     }
+
     async function pauseScanner(){
       if (!scanning) return;
       scanning = false;
@@ -188,7 +193,7 @@
     startScanner();
 
     $('#clearBtn').addEventListener('click', ()=>{
-      barcodeEl.value=''; ticketEl.value=''; 
+      barcodeEl.value=''; ticketEl.value='';
       status('Listo para nuevo escaneo', '');
       resumeScanner();
     });
@@ -221,7 +226,16 @@
       }
       try{
         const resp = await postRecord(data);
-        status('Registrado: ' + resp, 'ok');
+        // Mensaje claro según respuesta
+        if (resp === 'DUPLICATE') {
+          status('Ticket ya registrado (no se puede repetir).', 'err');
+        } else if (resp === 'UNAUTHORIZED') {
+          status('No autorizado: revisa el token en Ajustes.', 'err');
+        } else if (resp.startsWith('ERROR')) {
+          status(resp, 'err');
+        } else {
+          status('Registrado: ' + resp, 'ok');
+        }
       }catch(e){
         status('Error: ' + e.message, 'err');
       }
@@ -236,3 +250,5 @@
   </script>
 </body>
 </html>
+
+
