@@ -87,7 +87,6 @@
     </div>
   </main>
 
-  <!-- ZXing Browser -->
   <script src="https://unpkg.com/@zxing/library@0.20.0"></script>
   <script>
     const $ = (s)=>document.querySelector(s);
@@ -99,42 +98,57 @@
     const endpointEl = $('#endpoint');
     const tokenEl = $('#token');
 
+    // ======= Ajustes por defecto (pon tus valores reales) =======
+    const DEFAULT_ENDPOINT = 'https://script.google.com/macros/s/TU_ID/exec'; // <-- REEMPLAZA
+    const DEFAULT_TOKEN    = 'TU_SECRET_TOKEN';                               // <-- REEMPLAZA
+    // ============================================================
+
     function status(msg, type){
       statusEl.textContent = msg;
       statusEl.className = 'status ' + (type || '');
     }
 
-    // === Normalizador: si llega un URL, extrae ?c=ADM#######; si no, busca patrón ADMxxxxxx ===
+    // Normalizador: si es URL, saca ?c=; si no, busca ADM######
     function extractCode(txt){
       if (!txt) return '';
       txt = String(txt).trim();
-      // 1) Si es URL, tomar ?c=
       try {
         const u = new URL(txt);
         const c = u.searchParams.get('c');
         if (c) return c.trim();
       } catch(e){}
-      // 2) Si no es URL, intentar encontrar ADM###### dentro del texto
       const m = txt.match(/\bADM\d{6}\b/i);
       if (m) return m[0].toUpperCase();
-      // 3) Si no, regresa el texto original
       return txt;
     }
 
-    // Panel de ajustes
+    // Panel Ajustes
     const btnSettings = $('#btnSettings');
     const settings = $('#settings');
     btnSettings.addEventListener('click', ()=>{
       settings.style.display = settings.style.display === 'none' ? 'block' : 'none';
     });
 
-    // Cargar/guardar ajustes
+    // Cargar/guardar ajustes con defaults
     function loadSettings(){
-      endpointEl.value = localStorage.getItem('endpoint') || '';
-      tokenEl.value = localStorage.getItem('token') || '';
-      sellerEl.value = localStorage.getItem('seller') || '';
+      const savedEndpoint = localStorage.getItem('endpoint');
+      const savedToken = localStorage.getItem('token');
+      const savedSeller = localStorage.getItem('seller');
+
+      endpointEl.value = savedEndpoint || DEFAULT_ENDPOINT || '';
+      tokenEl.value = savedToken || DEFAULT_TOKEN || '';
+      sellerEl.value = savedSeller || '';
     }
     loadSettings();
+
+    // Auto-guardar defaults si no había nada
+    if (!localStorage.getItem('endpoint') && DEFAULT_ENDPOINT) {
+      localStorage.setItem('endpoint', DEFAULT_ENDPOINT);
+    }
+    if (!localStorage.getItem('token') && DEFAULT_TOKEN) {
+      localStorage.setItem('token', DEFAULT_TOKEN);
+    }
+
     $('#saveSettings').addEventListener('click', ()=>{
       localStorage.setItem('endpoint', endpointEl.value.trim());
       localStorage.setItem('token', tokenEl.value.trim());
@@ -153,7 +167,7 @@
       status('Código precargado desde URL', 'ok');
     }
 
-    // Normalizar pegados manuales (si pegan un URL completo)
+    // Normalizar pegados manuales
     barcodeEl.addEventListener('input', ()=>{
       const val = barcodeEl.value;
       const normalized = extractCode(val);
@@ -173,7 +187,7 @@
         codeReader.decodeFromVideoDevice(null, $('#video'), (result, err) => {
           if (result) {
             const txt = (result && result.text || '').trim();
-            const code = extractCode(txt); // normalizar aquí
+            const code = extractCode(txt);
             barcodeEl.value = code;
             status('Código detectado', 'ok');
             pauseScanner();
@@ -214,7 +228,7 @@
 
     $('#sendBtn').addEventListener('click', async ()=>{
       const data = {
-        barcode: extractCode(barcodeEl.value), // asegurar formato
+        barcode: extractCode(barcodeEl.value),
         ticket: ticketEl.value.trim(),
         cliente: clienteEl.value.trim(),
         seller: sellerEl.value.trim(),
@@ -226,7 +240,6 @@
       }
       try{
         const resp = await postRecord(data);
-        // Mensaje claro según respuesta
         if (resp === 'DUPLICATE') {
           status('Ticket ya registrado (no se puede repetir).', 'err');
         } else if (resp === 'UNAUTHORIZED') {
@@ -250,5 +263,6 @@
   </script>
 </body>
 </html>
+
 
 
