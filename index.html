@@ -85,19 +85,8 @@
       </div>
       <p class="muted small">Los ajustes se guardan localmente en este dispositivo (localStorage).</p>
     </div>
-
-    <div class="card">
-      <h3>Ayuda rápida</h3>
-      <ul>
-        <li>Usa HTTPS (o <code>localhost</code>) para que la cámara funcione.</li>
-        <li>Permite acceso a la cámara cuando el navegador lo pida.</li>
-        <li>Si no detecta códigos: verifica iluminación, enfoque y que los códigos sean Code-128 o QR.</li>
-      </ul>
-      <p class="muted">Versión: 1.0</p>
-    </div>
   </main>
 
-  <!-- ZXing Browser via CDN -->
   <script src="https://unpkg.com/@zxing/library@0.20.0"></script>
   <script>
     const $ = (s)=>document.querySelector(s);
@@ -109,19 +98,40 @@
     const endpointEl = $('#endpoint');
     const tokenEl = $('#token');
 
+    function status(msg, type){
+      statusEl.textContent = msg;
+      statusEl.className = 'status ' + (type || '');
+    }
+
+    // === Normalizador: si llega un URL, extrae ?c=ADM#######; si no, busca patrón ADMxxxxxx ===
+    function extractCode(txt){
+      if (!txt) return '';
+      txt = String(txt).trim();
+      // 1) Si es URL, tomar ?c=
+      try {
+        const u = new URL(txt);
+        const c = u.searchParams.get('c');
+        if (c) return c.trim();
+      } catch(e){}
+      // 2) Si no es URL, intentar encontrar ADM###### dentro del texto
+      const m = txt.match(/\bADM\d{6}\b/i);
+      if (m) return m[0].toUpperCase();
+      // 3) Si no, regresa el texto original
+      return txt;
+    }
+
+    // Cargar ajustes
     const btnSettings = $('#btnSettings');
     const settings = $('#settings');
     btnSettings.addEventListener('click', ()=>{
       settings.style.display = settings.style.display === 'none' ? 'block' : 'none';
     });
-
     function loadSettings(){
       endpointEl.value = localStorage.getItem('endpoint') || '';
       tokenEl.value = localStorage.getItem('token') || '';
       sellerEl.value = localStorage.getItem('seller') || '';
     }
     loadSettings();
-
     $('#saveSettings').addEventListener('click', ()=>{
       localStorage.setItem('endpoint', endpointEl.value.trim());
       localStorage.setItem('token', tokenEl.value.trim());
@@ -129,14 +139,27 @@
       status('Ajustes guardados', 'ok');
     });
 
+    // HTTPS hint
     const isSecure = location.protocol === 'https:' || location.hostname === 'localhost';
-    if (isSecure) { $('#secure').textContent='Cámara habilitada'; }
-    else { $('#secure').textContent='Abre con HTTPS o localhost'; }
+    $('#secure').textContent = isSecure ? 'Cámara habilitada' : 'Abre con HTTPS o localhost';
 
+    // Prefill desde ?c=
+    const prefill = new URLSearchParams(location.search).get('c');
+    if (prefill) {
+      barcodeEl.value = extractCode(prefill);
+      status('Código precargado desde URL', 'ok');
+    }
+
+    // Normalizar pegados manuales (si pegan un URL completo)
+    barcodeEl.addEventListener('input', ()=>{
+      const val = barcodeEl.value;
+      const normalized = extractCode(val);
+      if (normalized !== val) barcodeEl.value = normalized;
+    });
+
+    // Escáner
     const codeReader = new ZXing.BrowserMultiFormatReader();
-    let scanning = false;
-    let streamRef = null;
-
+    let scanning = false, streamRef = null;
     async function startScanner(){
       if (scanning) return;
       try{
@@ -145,32 +168,23 @@
         scanning = true;
         codeReader.decodeFromVideoDevice(null, $('#video'), (result, err) => {
           if (result) {
-            barcodeEl.value = result.text;
+            const txt = (result && result.text || '').trim();
+            const code = extractCode(txt); // <<-- AQUÍ normalizamos
+            barcodeEl.value = code;
             status('Código detectado', 'ok');
             pauseScanner();
           }
-          if (err && !(err instanceof ZXing.NotFoundException)) {
-            console.error(err);
-          }
+          if (err && !(err instanceof ZXing.NotFoundException)) console.error(err);
         });
-      }catch(e){
-        status('No se pudo acceder a la cámara: ' + e, 'err');
-      }
+      }catch(e){ status('No se pudo acceder a la cámara: ' + e, 'err'); }
     }
-
     async function pauseScanner(){
       if (!scanning) return;
       scanning = false;
       codeReader.reset();
-      if (streamRef) {
-        streamRef.getTracks().forEach(t => t.stop());
-      }
+      if (streamRef) streamRef.getTracks().forEach(t => t.stop());
     }
-
-    async function resumeScanner(){
-      await startScanner();
-    }
-
+    async function resumeScanner(){ await startScanner(); }
     startScanner();
 
     $('#clearBtn').addEventListener('click', ()=>{
@@ -178,11 +192,6 @@
       status('Listo para nuevo escaneo', '');
       resumeScanner();
     });
-
-    function status(msg, type){
-      statusEl.textContent = msg;
-      statusEl.className = 'status ' + (type || '');
-    }
 
     async function postRecord(payload){
       const endpoint = (endpointEl.value || '').trim();
@@ -195,13 +204,12 @@
         headers: {'Content-Type':'text/plain;charset=utf-8'},
         body: JSON.stringify(payload)
       });
-      const text = await res.text();
-      return text;
+      return await res.text();
     }
 
     $('#sendBtn').addEventListener('click', async ()=>{
       const data = {
-        barcode: barcodeEl.value.trim(),
+        barcode: extractCode(barcodeEl.value), // asegurar formato
         ticket: ticketEl.value.trim(),
         cliente: clienteEl.value.trim(),
         seller: sellerEl.value.trim(),
@@ -223,9 +231,7 @@
       try{
         const t = await postRecord({barcode:'TEST', ticket:'PING', cliente:'', seller: sellerEl.value.trim(), userAgent: navigator.userAgent});
         status('Ping OK: ' + t, 'ok');
-      }catch(e){
-        status('Ping falló: ' + e.message, 'err');
-      }
+      }catch(e){ status('Ping falló: ' + e.message, 'err'); }
     });
   </script>
 </body>
